@@ -958,6 +958,11 @@ public class RelToSqlConverterTest {
    * <a href="https://issues.apache.org/jira/browse/CALCITE-3220">[CALCITE-3220]
    * HiveSqlDialect should transform the SQL-standard TRIM function to TRIM,
    * LTRIM or RTRIM</a>. */
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-3663">[CALCITE-3663]
+   * Support for TRIM function in Bigquery dialect</a>. */
+
   @Test public void testHiveAndBqTrim() {
     final String query = "SELECT TRIM(' str ')\n"
         + "from \"foodmart\".\"reserve_employee\"";
@@ -982,16 +987,6 @@ public class RelToSqlConverterTest {
       .ok(expected);
   }
 
-  @Test public void testBqTrimWithBothChar() {
-    final String query = "SELECT TRIM(both 'a' from 'abcda')\n"
-      + "from \"foodmart\".\"reserve_employee\"";
-    final String expected = "SELECT TRIM('abcda', 'a')\n"
-      + "FROM foodmart.reserve_employee";
-    sql(query)
-      .withBigQuery()
-      .ok(expected);
-  }
-
   @Test public void testHiveAndBqTrimWithLeading() {
     final String query = "SELECT TRIM(LEADING ' ' from ' str ')\n"
         + "from \"foodmart\".\"reserve_employee\"";
@@ -1004,15 +999,6 @@ public class RelToSqlConverterTest {
       .ok(expected);
   }
 
-  @Test public void testBqTrimWithLeadingChar() {
-    final String query = "SELECT TRIM(LEADING 'a' from 'abcd')\n"
-      + "from \"foodmart\".\"reserve_employee\"";
-    final String expected = "SELECT LTRIM('abcd', 'a')\n"
-      + "FROM foodmart.reserve_employee";
-    sql(query)
-      .withBigQuery()
-      .ok(expected);
-  }
 
   @Test public void testHiveAndBqTrimWithTailing() {
     final String query = "SELECT TRIM(TRAILING ' ' from ' str ')\n"
@@ -1026,11 +1012,35 @@ public class RelToSqlConverterTest {
       .ok(expected);
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-3663">[CALCITE-3663]
+   * Support for TRIM function in Bigquery dialect</a>. */
+
+  @Test public void testBqTrimWithLeadingChar() {
+    final String query = "SELECT TRIM(LEADING 'a' from 'abcd')\n"
+        + "from \"foodmart\".\"reserve_employee\"";
+    final String expected = "SELECT LTRIM('abcd', 'a')\n"
+        + "FROM foodmart.reserve_employee";
+    sql(query)
+      .withBigQuery()
+      .ok(expected);
+  }
+
+  @Test public void testBqTrimWithBothChar() {
+    final String query = "SELECT TRIM(both 'a' from 'abcda')\n"
+        + "from \"foodmart\".\"reserve_employee\"";
+    final String expected = "SELECT TRIM('abcda', 'a')\n"
+        + "FROM foodmart.reserve_employee";
+    sql(query)
+      .withBigQuery()
+      .ok(expected);
+  }
+
   @Test public void testBqTrimWithTailingChar() {
     final String query = "SELECT TRIM(TRAILING 'a' from 'abcd')\n"
-      + "from \"foodmart\".\"reserve_employee\"";
+         + "from \"foodmart\".\"reserve_employee\"";
     final String expected = "SELECT RTRIM('abcd', 'a')\n"
-      + "FROM foodmart.reserve_employee";
+         + "FROM foodmart.reserve_employee";
     sql(query)
       .withBigQuery()
       .ok(expected);

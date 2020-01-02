@@ -203,24 +203,29 @@ public class BigQuerySqlDialect extends SqlDialect {
    *  BQ Trim Function</a>.
    */
   private void unparseTrim(SqlWriter writer, SqlCall call, int leftPrec,
-    int rightPrec) {
-    assert call.operand(0) instanceof SqlLiteral : call.operand(0);
+      int rightPrec) {
     final String operatorName;
     SqlLiteral trimFlag = call.operand(0);
     SqlLiteral valueToTrim = call.operand(1);
     switch (trimFlag.getValueAs(SqlTrimFunction.Flag.class)) {
-      case LEADING:
-        operatorName = "LTRIM";
-        break;
-      case TRAILING:
-        operatorName = "RTRIM";
-        break;
-      default:
-        operatorName = call.getOperator().getName();
-        break;
+    case LEADING:
+      operatorName = "LTRIM";
+      break;
+    case TRAILING:
+      operatorName = "RTRIM";
+      break;
+    default:
+      operatorName = call.getOperator().getName();
+      break;
     }
     final SqlWriter.Frame trimFrame = writer.startFunCall(operatorName);
     call.operand(2).unparse(writer, leftPrec, rightPrec);
+
+    /**
+     * If the trimmed character is non space character then add it to the target sql.
+     * eg: TRIM(BOTH 'A' from 'ABCD'
+     * Output Query: TRIM('ABC', 'A')
+     * */
     if (!valueToTrim.toValue().matches("\\s+")) {
       writer.literal(",");
       call.operand(1).unparse(writer, leftPrec, rightPrec);
