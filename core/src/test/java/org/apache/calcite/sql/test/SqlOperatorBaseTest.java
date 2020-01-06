@@ -5188,6 +5188,45 @@ public abstract class SqlOperatorBaseTest {
         "1", "VARCHAR(2000)");
   }
 
+  @Test public void testXmlTransform() {
+    SqlTester sqlTester = tester(SqlLibrary.ORACLE);
+    sqlTester.checkNull("XMLTRANSFORM('', NULL)");
+    sqlTester.checkNull("XMLTRANSFORM(NULL,'')");
+
+    sqlTester.checkFails("XMLTRANSFORM('', '<')",
+        "Illegal xslt specified : '.*", true);
+    sqlTester.checkFails("XMLTRANSFORM('<', '<?xml version=\"1.0\"?>\n"
+            + "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">"
+            + "</xsl:stylesheet>')",
+        "Invalid input for XMLTRANSFORM xml: '.*", true);
+
+    sqlTester.checkString("XMLTRANSFORM("
+            + "'<?xml version=\"1.0\"?>\n"
+            + "<Article>\n"
+            + "  <Title>My Article</Title>\n"
+            + "  <Authors>\n"
+            + "    <Author>Mr. Foo</Author>\n"
+            + "    <Author>Mr. Bar</Author>\n"
+            + "  </Authors>\n"
+            + "  <Body>This is my article text.</Body>\n"
+            + "</Article>'"
+            + ","
+            + "'<?xml version=\"1.0\"?>\n"
+            + "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3"
+            + ".org/1999/XSL/Transform\">"
+            + "  <xsl:output method=\"text\"/>"
+            + "  <xsl:template match=\"/\">"
+            + "    Article - <xsl:value-of select=\"/Article/Title\"/>"
+            + "    Authors: <xsl:apply-templates select=\"/Article/Authors/Author\"/>"
+            + "  </xsl:template>"
+            + "  <xsl:template match=\"Author\">"
+            + "    - <xsl:value-of select=\".\" />"
+            + "  </xsl:template>"
+            + "</xsl:stylesheet>')",
+        "    Article - My Article    Authors:     - Mr. Foo    - Mr. Bar",
+        "VARCHAR(2000)");
+  }
+
   @Test public void testLowerFunc() {
     tester.setFor(SqlStdOperatorTable.LOWER);
 
@@ -8727,6 +8766,28 @@ public abstract class SqlOperatorBaseTest {
         false);
     final String[] values = {"1", "2", "2"};
     tester.checkAgg("bit_or(x)", values, 3, 0);
+  }
+
+  @Test public void testBitXorFunc() {
+    tester.setFor(SqlStdOperatorTable.BIT_XOR, VM_FENNEL, VM_JAVA);
+    tester.checkFails("bit_xor(^*^)", "Unknown identifier '\\*'", false);
+    tester.checkType("bit_xor(1)", "INTEGER");
+    tester.checkType("bit_xor(CAST(2 AS TINYINT))", "TINYINT");
+    tester.checkType("bit_xor(CAST(2 AS SMALLINT))", "SMALLINT");
+    tester.checkType("bit_xor(distinct CAST(2 AS BIGINT))", "BIGINT");
+    tester.checkFails("^bit_xor(1.2)^",
+        "Cannot apply 'BIT_XOR' to arguments of type 'BIT_XOR\\(<DECIMAL\\(2, 1\\)>\\)'\\. Supported form\\(s\\): 'BIT_XOR\\(<INTEGER>\\)'",
+        false);
+    tester.checkFails(
+        "^bit_xor()^",
+        "Invalid number of arguments to function 'BIT_XOR'. Was expecting 1 arguments",
+        false);
+    tester.checkFails(
+        "^bit_xor(1, 2)^",
+        "Invalid number of arguments to function 'BIT_XOR'. Was expecting 1 arguments",
+        false);
+    final String[] values = {"1", "2", "1"};
+    tester.checkAgg("bit_xor(x)", values, 2, 0);
   }
 
   /**

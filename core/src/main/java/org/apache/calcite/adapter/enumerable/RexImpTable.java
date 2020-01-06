@@ -118,6 +118,7 @@ import static org.apache.calcite.sql.fun.SqlLibraryOperators.SOUNDEX;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SPACE;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.TO_BASE64;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.TRANSLATE3;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.XML_TRANSFORM;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.ABS;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.ACOS;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.AND;
@@ -129,6 +130,7 @@ import static org.apache.calcite.sql.fun.SqlStdOperatorTable.ATAN;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.ATAN2;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.BIT_AND;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.BIT_OR;
+import static org.apache.calcite.sql.fun.SqlStdOperatorTable.BIT_XOR;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CARDINALITY;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CASE;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CAST;
@@ -529,6 +531,7 @@ public class RexImpTable {
 
     // Xml Operators
     defineMethod(EXTRACT_VALUE, BuiltInMethod.EXTRACT_VALUE.method, NullPolicy.ARG0);
+    defineMethod(XML_TRANSFORM, BuiltInMethod.XML_TRANSFORM.method, NullPolicy.ARG0);
 
     // Json Operators
     defineMethod(JSON_VALUE_EXPRESSION,
@@ -608,6 +611,7 @@ public class RexImpTable {
     final Supplier<BitOpImplementor> bitop = constructorSupplier(BitOpImplementor.class);
     aggMap.put(BIT_AND, bitop);
     aggMap.put(BIT_OR, bitop);
+    aggMap.put(BIT_XOR, bitop);
     aggMap.put(SINGLE_VALUE, constructorSupplier(SingleValueImplementor.class));
     aggMap.put(COLLECT, constructorSupplier(CollectImplementor.class));
     aggMap.put(LISTAGG, constructorSupplier(ListaggImplementor.class));
@@ -1535,7 +1539,7 @@ public class RexImpTable {
     }
   }
 
-  /** Implementor for the {@code BIT_AND} and {@code BIT_OR} aggregate function. */
+  /** Implementor for the {@code BIT_AND}, {@code BIT_OR} and {@code BIT_XOR} aggregate function. */
   static class BitOpImplementor extends StrictAggImplementor {
     @Override protected void implementNotNullReset(AggContext info,
         AggResetContext reset) {
@@ -1552,9 +1556,23 @@ public class RexImpTable {
       Expression acc = add.accumulator().get(0);
       Expression arg = add.arguments().get(0);
       SqlAggFunction aggregation = info.aggregation();
-      final Method method = (aggregation == BIT_AND
-          ? BuiltInMethod.BIT_AND
-          : BuiltInMethod.BIT_OR).method;
+
+      final BuiltInMethod builtInMethod;
+      switch (aggregation.kind) {
+      case BIT_AND:
+        builtInMethod = BuiltInMethod.BIT_AND;
+        break;
+      case BIT_OR:
+        builtInMethod = BuiltInMethod.BIT_OR;
+        break;
+      case BIT_XOR:
+        builtInMethod = BuiltInMethod.BIT_XOR;
+        break;
+      default:
+        throw new IllegalArgumentException("Unknown " + aggregation.getName()
+            + ". Only support bit_and, bit_or and bit_xor for bit aggregation function");
+      }
+      final Method method = builtInMethod.method;
       Expression next = Expressions.call(
           method.getDeclaringClass(),
           method.getName(),
@@ -2222,11 +2240,12 @@ public class RexImpTable {
         RexCall call,
         List<Expression> translatedOperands) {
       final Expression expression;
+      Class clazz = method.getDeclaringClass();
       if (Modifier.isStatic(method.getModifiers())) {
-        expression = Expressions.call(method, translatedOperands);
+        expression = EnumUtils.call(clazz, method.getName(), translatedOperands);
       } else {
-        expression = Expressions.call(translatedOperands.get(0), method,
-            Util.skip(translatedOperands, 1));
+        expression = EnumUtils.call(clazz, method.getName(),
+            Util.skip(translatedOperands, 1), translatedOperands.get(0));
       }
 
       final Type returnType =
@@ -2250,7 +2269,7 @@ public class RexImpTable {
         RexToLixTranslator translator,
         RexCall call,
         List<Expression> translatedOperands) {
-      return Expressions.call(
+      return EnumUtils.call(
           SqlFunctions.class,
           methodName,
           translatedOperands);

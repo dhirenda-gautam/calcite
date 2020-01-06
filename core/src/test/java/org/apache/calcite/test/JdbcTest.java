@@ -279,8 +279,8 @@ public class JdbcTest {
           assertThat(resultSet.getString(1),
               isLinux(
                   "EnumerableTableModify(table=[[adhoc, MUTABLE_EMPLOYEES]], operation=[INSERT], flattened=[false])\n"
-                  + "  EnumerableCalc(expr#0..2=[{inputs}], expr#3=[CAST($t1):JavaType(int) NOT NULL], expr#4=[10], expr#5=[CAST($t0):JavaType(class java.lang.String)], expr#6=[CAST($t2):JavaType(float) NOT NULL], expr#7=[null:JavaType(class java.lang.Integer)], empid=[$t3], deptno=[$t4], name=[$t5], salary=[$t6], commission=[$t7])\n"
-                  + "    EnumerableValues(tuples=[[{ 'Fred', 56, 123.4 }]])\n"));
+                      + "  EnumerableCalc(expr#0=[{inputs}], expr#1=[56], expr#2=[10], expr#3=['Fred':JavaType(class java.lang.String)], expr#4=[CAST($t3):JavaType(class java.lang.String)], expr#5=[123.4:JavaType(float)], expr#6=[null:JavaType(class java.lang.Integer)], empid=[$t1], deptno=[$t2], name=[$t4], salary=[$t5], commission=[$t6])\n"
+                      + "    EnumerableValues(tuples=[[{ 0 }]])\n"));
 
           // With named columns
           resultSet =
@@ -3820,6 +3820,29 @@ public class JdbcTest {
             "deptno=20; empid=200; hire_date=2014-06-12; R=1");
   }
 
+  @Test public void testNestedWin() {
+    CalciteAssert.hr()
+        .query("select \n"
+            + " lag(a2, 1, 0) over (partition by \"deptno\" order by a1) as lagx \n"
+            + "from \n"
+            + " (\n"
+            + "  select \n"
+            + "   \"deptno\", \n"
+            + "   \"salary\" / \"commission\" as a1, \n"
+            + "   sum(\"commission\") over ( partition by \"deptno\" order by \"salary\" / "
+            + "\"commission\") / sum(\"commission\") over (partition by \"deptno\") as a2 \n"
+            + "  from \n"
+            + "   \"hr\".\"emps\"\n"
+            + " )\n")
+        .typeIs(
+            "[LAGX INTEGER NOT NULL]")
+        .returnsUnordered(
+            "LAGX=0",
+            "LAGX=0",
+            "LAGX=0",
+            "LAGX=1");
+  }
+
   private void startOfGroupStep1(String startOfGroup) {
     CalciteAssert.that()
         .query("select t.*\n"
@@ -4244,6 +4267,20 @@ public class JdbcTest {
             "empid=200; commission=500; M=3",
             "empid=150; commission=null; M=1",
             "empid=110; commission=250; M=2");
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-3563">[CALCITE-3563]
+   * When resolving method call in calcite runtime, add type check and match
+   * mechanism for input arguments</a>. */
+  @Test public void testMethodParameterTypeMatch() {
+    CalciteAssert.that()
+        .query("SELECT mod(12.5, cast(3 as bigint))")
+        .planContains("final java.math.BigDecimal v = "
+            + "$L4J$C$new_java_math_BigDecimal_12_5_")
+        .planContains("org.apache.calcite.runtime.SqlFunctions.mod(v, "
+            + "$L4J$C$new_java_math_BigDecimal_3L_)")
+        .returns("EXPR$0=0.5\n");
   }
 
   /** Tests UNBOUNDED PRECEDING clause. */
