@@ -27,6 +27,7 @@ import org.apache.calcite.rel.mutable.Holder;
 import org.apache.calcite.rel.mutable.MutableAggregate;
 import org.apache.calcite.rel.mutable.MutableCalc;
 import org.apache.calcite.rel.mutable.MutableFilter;
+import org.apache.calcite.rel.mutable.MutableIntersect;
 import org.apache.calcite.rel.mutable.MutableJoin;
 import org.apache.calcite.rel.mutable.MutableRel;
 import org.apache.calcite.rel.mutable.MutableRelVisitor;
@@ -134,7 +135,8 @@ public class SubstitutionVisitor {
           AggregateToAggregateUnifyRule.INSTANCE,
           AggregateOnCalcToAggregateUnifyRule.INSTANCE,
           UnionToUnionUnifyRule.INSTANCE,
-          UnionOnCalcsToUnionUnifyRule.INSTANCE);
+          UnionOnCalcsToUnionUnifyRule.INSTANCE,
+          IntersectToIntersectUnifyRule.INSTANCE);
 
   /**
    * Factory for a builder for relational expressions.
@@ -1170,8 +1172,8 @@ public class SubstitutionVisitor {
       final RexBuilder rexBuilder = call.getCluster().getRexBuilder();
 
       // Try pulling up MutableCalc only when:
-      // 1. it's inner join;
-      // 2. it's outer join but no filttering condition from MutableCalc.
+      // 1. it's inner join.
+      // 2. it's outer join but no filtering condition from MutableCalc.
       final JoinRelType joinRelType = sameJoinType(query.joinType, target.joinType);
       if (joinRelType == null) {
         return null;
@@ -1256,8 +1258,8 @@ public class SubstitutionVisitor {
       final RexBuilder rexBuilder = call.getCluster().getRexBuilder();
 
       // Try pulling up MutableCalc only when:
-      // 1. it's inner join;
-      // 2. it's outer join but no filttering condition from MutableCalc.
+      // 1. it's inner join.
+      // 2. it's outer join but no filtering condition from MutableCalc.
       final JoinRelType joinRelType = sameJoinType(query.joinType, target.joinType);
       if (joinRelType == null) {
         return null;
@@ -1347,8 +1349,8 @@ public class SubstitutionVisitor {
       final RexBuilder rexBuilder = call.getCluster().getRexBuilder();
 
       // Try pulling up MutableCalc only when:
-      // 1. it's inner join;
-      // 2. it's outer join but no filttering condition from MutableCalc.
+      // 1. it's inner join.
+      // 2. it's outer join but no filtering condition from MutableCalc.
       final JoinRelType joinRelType = sameJoinType(query.joinType, target.joinType);
       if (joinRelType == null) {
         return null;
@@ -1626,6 +1628,32 @@ public class SubstitutionVisitor {
         return tryMergeParentCalcAndGenResult(call, compenCalc);
       }
 
+      return null;
+    }
+  }
+
+  /**
+   * A {@link SubstitutionVisitor.UnifyRule} that matches a
+   * {@link MutableIntersect} to a {@link MutableIntersect} where the query and target
+   * have the same inputs but might not have the same order.
+   */
+  private static class IntersectToIntersectUnifyRule extends AbstractUnifyRule {
+    public static final IntersectToIntersectUnifyRule INSTANCE =
+        new IntersectToIntersectUnifyRule();
+
+    private IntersectToIntersectUnifyRule() {
+      super(any(MutableIntersect.class), any(MutableIntersect.class), 0);
+    }
+
+    public UnifyResult apply(UnifyRuleCall call) {
+      final MutableIntersect query = (MutableIntersect) call.query;
+      final MutableIntersect target = (MutableIntersect) call.target;
+      final List<MutableRel> queryInputs = new ArrayList<>(query.getInputs());
+      final List<MutableRel> targetInputs = new ArrayList<>(target.getInputs());
+      if (query.isAll() == target.isAll()
+          && sameRelCollectionNoOrderConsidered(queryInputs, targetInputs)) {
+        return call.result(target);
+      }
       return null;
     }
   }

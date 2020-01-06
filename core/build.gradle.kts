@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import com.github.vlsi.gradle.crlf.CrLfSpec
 import com.github.vlsi.gradle.crlf.LineEndings
 
@@ -79,6 +78,17 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.slf4j:slf4j-log4j12")
+}
+
+// There are users that reuse/extend test code (e.g. Apache Felix)
+// So publish test jar to Nexus repository
+// TODO: remove when calcite-test-framework is extracted to a standalone artifact
+publishing {
+    publications {
+        named<MavenPublication>(project.name) {
+            artifact(tasks.testJar.get())
+        }
+    }
 }
 
 tasks.jar {

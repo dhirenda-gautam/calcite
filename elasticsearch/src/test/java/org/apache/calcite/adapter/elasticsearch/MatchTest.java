@@ -44,9 +44,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.LineProcessor;
 import com.google.common.io.Resources;
 
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,29 +59,31 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.apache.calcite.test.Matchers.hasTree;
 
 import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 /**
  * Testing Elasticsearch match query.
  */
+@ResourceLock(value = "elasticsearch-scrolls", mode = ResourceAccessMode.READ)
 public class MatchTest {
 
-  @ClassRule //init once for all tests
   public static final EmbeddedElasticsearchPolicy NODE = EmbeddedElasticsearchPolicy.create();
 
   /** Default index/type name */
-  private static final String ZIPS = "zips";
+  private static final String ZIPS = "match-zips";
   private static final int ZIPS_SIZE = 149;
 
   /**
    * Used to create {@code zips} index and insert zip data in bulk.
    * @throws Exception when instance setup failed
    */
-  @BeforeClass
+  @BeforeAll
   public static void setup() throws Exception {
     final Map<String, String> mapping = ImmutableMap.of("city", "text", "state",
         "keyword", "pop", "long");
@@ -118,17 +121,18 @@ public class MatchTest {
         root.add("elastic", new ElasticsearchSchema(NODE.restClient(), NODE.mapper(), ZIPS));
 
         // add calcite view programmatically
-        final String viewSql = "select cast(_MAP['city'] AS varchar(20)) AS \"city\", "
+        final String viewSql = String.format(Locale.ROOT,
+            "select cast(_MAP['city'] AS varchar(20)) AS \"city\", "
             + " cast(_MAP['loc'][0] AS float) AS \"longitude\",\n"
             + " cast(_MAP['loc'][1] AS float) AS \"latitude\",\n"
             + " cast(_MAP['pop'] AS integer) AS \"pop\", "
             +  " cast(_MAP['state'] AS varchar(2)) AS \"state\", "
             +  " cast(_MAP['id'] AS varchar(5)) AS \"id\" "
-            +  "from \"elastic\".\"zips\"";
+            +  "from \"elastic\".\"%s\"", ZIPS);
 
         ViewTableMacro macro = ViewTable.viewMacro(root, viewSql,
             Collections.singletonList("elastic"), Arrays.asList("elastic", "view"), false);
-        root.add("zips", macro);
+        root.add(ZIPS, macro);
 
         return connection;
       }
@@ -191,7 +195,7 @@ public class MatchTest {
     String builderExpected = ""
          + "LogicalFilter(condition=[CONTAINS($1, 'waltham')])\n"
          + "  LogicalProject(_MAP=[$0], city=[ITEM($0, 'city')])\n"
-         + "    LogicalTableScan(table=[[elastic, zips]])\n";
+         + "    LogicalTableScan(table=[[elastic, " + ZIPS + "]])\n";
 
     RelNode root = builder.build();
 

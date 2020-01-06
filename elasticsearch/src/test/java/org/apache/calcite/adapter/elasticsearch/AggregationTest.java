@@ -28,9 +28,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -45,16 +46,15 @@ import java.util.Map;
 /**
  * Testing Elasticsearch aggregation transformations.
  */
+@ResourceLock(value = "elasticsearch-scrolls", mode = ResourceAccessMode.READ)
 public class AggregationTest {
 
-  @ClassRule
   public static final EmbeddedElasticsearchPolicy NODE = EmbeddedElasticsearchPolicy.create();
 
   private static final String NAME = "aggs";
 
-  @BeforeClass
+  @BeforeAll
   public static void setupInstance() throws Exception {
-
     final Map<String, String> mappings = ImmutableMap.<String, String>builder()
         .put("cat1", "keyword")
         .put("cat2", "keyword")
