@@ -143,9 +143,29 @@ val javadocAggregate by tasks.registering(Javadoc::class) {
     setDestinationDir(file("$buildDir/docs/javadocAggregate"))
 }
 
+/** Similar to {@link #javadocAggregate} but includes tests.
+ * CI uses this target to validate javadoc (e.g. checking for broken links). */
+val javadocAggregateIncludingTests by tasks.registering(Javadoc::class) {
+    description = "Generates aggregate javadoc for all the artifacts"
+
+    val sourceSets = allprojects
+        .mapNotNull { it.extensions.findByType<SourceSetContainer>() }
+        .flatMap { listOf(it.named("main"), it.named("test")) }
+
+    classpath = files(sourceSets.map { set -> set.map { it.output + it.compileClasspath } })
+    setSource(sourceSets.map { set -> set.map { it.allJava } })
+    setDestinationDir(file("$buildDir/docs/javadocAggregateIncludingTests"))
+}
+
 val adaptersForSqlline = listOf(
     ":babel", ":cassandra", ":druid", ":elasticsearch", ":file", ":geode", ":kafka", ":mongodb",
-    ":pig", ":piglet", ":plus", ":spark", ":splunk"
+    ":pig", ":piglet", ":plus", ":redis", ":spark", ":splunk"
+)
+
+val dataSetsForSqlline = listOf(
+    "net.hydromatic:foodmart-data-hsqldb",
+    "net.hydromatic:scott-data-hsqldb",
+    "net.hydromatic:chinook-data-hsqldb"
 )
 
 val sqllineClasspath by configurations.creating {
@@ -157,6 +177,9 @@ dependencies {
     sqllineClasspath("sqlline:sqlline")
     for (p in adaptersForSqlline) {
         sqllineClasspath(project(p))
+    }
+    for (m in dataSetsForSqlline) {
+        sqllineClasspath(module(m))
     }
 }
 
@@ -519,6 +542,7 @@ allprojects {
                 }
                 passProperty("java.awt.headless")
                 passProperty("junit.jupiter.execution.parallel.enabled", "true")
+                passProperty("junit.jupiter.execution.parallel.mode.default", "concurrent")
                 passProperty("junit.jupiter.execution.timeout.default", "5 m")
                 passProperty("user.language", "TR")
                 passProperty("user.country", "tr")

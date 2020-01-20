@@ -18,6 +18,19 @@
 !use mysqlfunc
 !set outputformat mysql
 
+# MATH Functions
+
+# CBRT
+select cbrt(-8);
++--------+
+| EXPR$0 |
++--------+
+|   -2.0 |
++--------+
+(1 row)
+
+!ok
+
 # XML Functions
 
 SELECT ExtractValue('<a>c</a>', '//a');
@@ -54,6 +67,33 @@ SELECT XMLTRANSFORM(
 +-------------------------------------------------+
 | Article - My ArticleAuthors: - Mr. Foo- Mr. Bar |
 +-------------------------------------------------+
+(1 row)
+
+!ok
+
+
+SELECT "EXTRACT"(
+            '<Article><Title>Article1</Title><Authors><Author>Foo</Author><Author>Bar</Author></Authors><Body>article text</Body></Article>'
+            , '/Article/Title'
+        );
++-------------------------+
+| EXPR$0                  |
++-------------------------+
+| <Title>Article1</Title> |
++-------------------------+
+(1 row)
+
+!ok
+
+SELECT EXISTSNODE(
+            '<Article><Title>Article1</Title><Authors><Author>Foo</Author><Author>Bar</Author></Authors><Body>article text</Body></Article>'
+            , '/Article/Title'
+        );
++--------+
+| EXPR$0 |
++--------+
+|      1 |
++--------+
 (1 row)
 
 !ok

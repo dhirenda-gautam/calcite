@@ -37,6 +37,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeFactoryImpl;
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexPatternFieldRef;
@@ -49,6 +50,7 @@ import org.apache.calcite.sql.SqlBinaryOperator;
 import org.apache.calcite.sql.SqlJsonConstructorNullClause;
 import org.apache.calcite.sql.SqlMatchFunction;
 import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.SqlWindowTableFunction;
 import org.apache.calcite.sql.fun.SqlJsonArrayAggAggFunction;
 import org.apache.calcite.sql.fun.SqlJsonObjectAggAggFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
@@ -97,7 +99,9 @@ import static org.apache.calcite.linq4j.tree.ExpressionType.UnaryPlus;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.CHR;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.DAYNAME;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.DIFFERENCE;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.EXISTS_NODE;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.EXTRACT_VALUE;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.EXTRACT_XML;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.FROM_BASE64;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.JSON_DEPTH;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.JSON_KEYS;
@@ -134,6 +138,7 @@ import static org.apache.calcite.sql.fun.SqlStdOperatorTable.BIT_XOR;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CARDINALITY;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CASE;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CAST;
+import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CBRT;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CEIL;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CHARACTER_LENGTH;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.CHAR_LENGTH;
@@ -266,6 +271,7 @@ import static org.apache.calcite.sql.fun.SqlStdOperatorTable.SYSTEM_USER;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.TAN;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.TRIM;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.TRUNCATE;
+import static org.apache.calcite.sql.fun.SqlStdOperatorTable.TUMBLE_TVF;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.UNARY_MINUS;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.UNARY_PLUS;
 import static org.apache.calcite.sql.fun.SqlStdOperatorTable.UPPER;
@@ -295,6 +301,8 @@ public class RexImpTable {
       new HashMap<>();
   private final Map<SqlMatchFunction, Supplier<? extends MatchImplementor>> matchMap =
       new HashMap<>();
+  private final Map<SqlOperator, Supplier<? extends TableValuedFunctionCallImplementor>>
+      tvfImplementorMap = new HashMap<>();
 
   RexImpTable() {
     defineMethod(ROW, BuiltInMethod.ARRAY.method, NullPolicy.ANY);
@@ -391,6 +399,7 @@ public class RexImpTable {
     defineMethod(ASIN, "asin", NullPolicy.STRICT);
     defineMethod(ATAN, "atan", NullPolicy.STRICT);
     defineMethod(ATAN2, "atan2", NullPolicy.STRICT);
+    defineMethod(CBRT, "cbrt", NullPolicy.STRICT);
     defineMethod(COS, "cos", NullPolicy.STRICT);
     defineMethod(COT, "cot", NullPolicy.STRICT);
     defineMethod(DEGREES, "degrees", NullPolicy.STRICT);
@@ -532,6 +541,8 @@ public class RexImpTable {
     // Xml Operators
     defineMethod(EXTRACT_VALUE, BuiltInMethod.EXTRACT_VALUE.method, NullPolicy.ARG0);
     defineMethod(XML_TRANSFORM, BuiltInMethod.XML_TRANSFORM.method, NullPolicy.ARG0);
+    defineMethod(EXTRACT_XML, BuiltInMethod.EXTRACT_XML.method, NullPolicy.ARG0);
+    defineMethod(EXISTS_NODE, BuiltInMethod.EXISTS_NODE.method, NullPolicy.ARG0);
 
     // Json Operators
     defineMethod(JSON_VALUE_EXPRESSION,
@@ -638,6 +649,7 @@ public class RexImpTable {
     matchMap.put(CLASSIFIER, ClassifierImplementor::new);
     matchMap.put(LAST, LastImplementor::new);
     map.put(PREV, new PrevImplementor());
+    tvfImplementorMap.put(TUMBLE_TVF, TumbleImplementor::new);
   }
 
   private <T> Supplier<T> constructorSupplier(Class<T> klass) {
@@ -925,6 +937,16 @@ public class RexImpTable {
   public MatchImplementor get(final SqlMatchFunction function) {
     final Supplier<? extends MatchImplementor> supplier =
         matchMap.get(function);
+    if (supplier != null) {
+      return supplier.get();
+    } else {
+      throw new IllegalStateException("Supplier should not be null");
+    }
+  }
+
+  public TableValuedFunctionCallImplementor get(final SqlWindowTableFunction operator) {
+    final Supplier<? extends TableValuedFunctionCallImplementor> supplier =
+        tvfImplementorMap.get(operator);
     if (supplier != null) {
       return supplier.get();
     } else {
@@ -3041,6 +3063,33 @@ public class RexImpTable {
           Expressions.constant(-1));
       ((EnumerableMatch.PrevInputGetter) translator.inputGetter).setOffset(offs);
       return translator.translate(node, nullAs);
+    }
+  }
+
+  /** Implements tumbling. */
+  private static class TumbleImplementor implements TableValuedFunctionCallImplementor {
+    @Override public Expression implement(RexToLixTranslator translator,
+        Expression inputEnumerable,
+        RexCall call, PhysType inputPhysType, PhysType outputPhysType) {
+      Expression intervalExpression = translator.translate(call.getOperands().get(2));
+      RexCall descriptor = (RexCall) call.getOperands().get(1);
+      List<Expression> translatedOperands = new ArrayList<>();
+      final ParameterExpression parameter =
+          Expressions.parameter(Primitive.box(inputPhysType.getJavaRowType()), "_input");
+      Expression wmColExpr = inputPhysType.fieldReference(
+          parameter, ((RexInputRef) descriptor.getOperands().get(0)).getIndex(),
+          outputPhysType.getJavaFieldType(inputPhysType.getRowType().getFieldCount()));
+      translatedOperands.add(wmColExpr);
+      translatedOperands.add(intervalExpression);
+
+      return Expressions.call(
+          BuiltInMethod.TUMBLING.method,
+          inputEnumerable,
+          EnumUtils.windowSelector(
+              inputPhysType,
+              outputPhysType,
+              translatedOperands.get(0),
+              translatedOperands.get(1)));
     }
   }
 }

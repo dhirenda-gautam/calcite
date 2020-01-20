@@ -36,7 +36,6 @@ import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOperandCountRange;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.dialect.AnsiSqlDialect;
-import org.apache.calcite.sql.dialect.CalciteSqlDialect;
 import org.apache.calcite.sql.fun.SqlLibrary;
 import org.apache.calcite.sql.fun.SqlLibraryOperatorTableFactory;
 import org.apache.calcite.sql.fun.SqlLibraryOperators;
@@ -1820,6 +1819,7 @@ public abstract class SqlOperatorBaseTest {
     tester.checkScalarApprox("{fn ASIN(0.2)}", "DOUBLE NOT NULL", 0.20135, 0.001);
     tester.checkScalarApprox("{fn ATAN(0.2)}", "DOUBLE NOT NULL", 0.19739, 0.001);
     tester.checkScalarApprox("{fn ATAN2(-2, 2)}", "DOUBLE NOT NULL", -0.78539, 0.001);
+    tester.checkScalar("{fn CBRT(8)}", 2.0, "DOUBLE NOT NULL");
     tester.checkScalar("{fn CEILING(-2.6)}", -2, "DECIMAL(2, 0) NOT NULL");
     tester.checkScalarApprox("{fn COS(0.2)}", "DOUBLE NOT NULL", 0.98007, 0.001);
     tester.checkScalarApprox("{fn COT(0.2)}", "DOUBLE NOT NULL", 4.93315, 0.001);
@@ -5227,6 +5227,93 @@ public abstract class SqlOperatorBaseTest {
         "VARCHAR(2000)");
   }
 
+  @Test public void testExtractXml() {
+    SqlTester sqlTester = tester(SqlLibrary.ORACLE);
+
+    sqlTester.checkFails("\"EXTRACT\"('', '<','a')",
+        "Invalid input for EXTRACT xpath: '.*", true);
+    sqlTester.checkFails("\"EXTRACT\"('', '<')",
+        "Invalid input for EXTRACT xpath: '.*", true);
+    sqlTester.checkNull("\"EXTRACT\"('', NULL)");
+    sqlTester.checkNull("\"EXTRACT\"(NULL,'')");
+
+    sqlTester.checkString(
+        "\"EXTRACT\"('<Article><Title>Article1</Title><Authors><Author>Foo</Author><Author>Bar"
+            + "</Author></Authors><Body>article text"
+            + ".</Body></Article>', '/Article/Title')",
+        "<Title>Article1</Title>",
+        "VARCHAR(2000)");
+
+    sqlTester.checkString(
+        "\"EXTRACT\"('<Article><Title>Article1</Title><Title>Article2</Title><Authors><Author>Foo"
+            + "</Author><Author>Bar</Author></Authors><Body>article text"
+            + ".</Body></Article>', '/Article/Title')",
+        "<Title>Article1</Title><Title>Article2</Title>",
+        "VARCHAR(2000)");
+
+    sqlTester.checkString(
+        "\"EXTRACT\"(\n"
+            + "'<books xmlns=\"http://www.contoso"
+            + ".com/books\"><book><title>Title</title><author>Author Name</author><price>5"
+            + ".50</price></book></books>'"
+            + ", '/books:books/books:book', 'books=\"http://www.contoso.com/books\"'"
+            + ")",
+        "<book xmlns=\"http://www.contoso.com/books\"><title>Title</title><author>Author "
+            + "Name</author><price>5.50</price></book>",
+        "VARCHAR(2000)");
+  }
+
+  @Test public void testExistsNode() {
+    SqlTester sqlTester = tester(SqlLibrary.ORACLE);
+
+    sqlTester.checkFails("EXISTSNODE('', '<','a')",
+        "Invalid input for EXISTSNODE xpath: '.*", true);
+    sqlTester.checkFails("EXISTSNODE('', '<')",
+        "Invalid input for EXISTSNODE xpath: '.*", true);
+    sqlTester.checkNull("EXISTSNODE('', NULL)");
+    sqlTester.checkNull("EXISTSNODE(NULL,'')");
+
+    sqlTester.checkString(
+        "EXISTSNODE('<Article><Title>Article1</Title><Authors><Author>Foo</Author><Author>Bar"
+            + "</Author></Authors><Body>article text"
+            + ".</Body></Article>', '/Article/Title')",
+        "1",
+        "INTEGER");
+
+    sqlTester.checkString(
+        "EXISTSNODE('<Article><Title>Article1</Title><Authors><Author>Foo</Author><Author>Bar"
+            + "</Author></Authors><Body>article text"
+            + ".</Body></Article>', '/Article/Title/Books')",
+        "0",
+        "INTEGER");
+
+    sqlTester.checkString(
+        "EXISTSNODE('<Article><Title>Article1</Title><Title>Article2</Title><Authors><Author>Foo"
+            + "</Author><Author>Bar</Author></Authors><Body>article text"
+            + ".</Body></Article>', '/Article/Title')",
+        "1",
+        "INTEGER");
+
+    sqlTester.checkString(
+        "EXISTSNODE(\n"
+            + "'<books xmlns=\"http://www.contoso"
+            + ".com/books\"><book><title>Title</title><author>Author Name</author><price>5"
+            + ".50</price></book></books>'"
+            + ", '/books:books/books:book', 'books=\"http://www.contoso.com/books\"'"
+            + ")",
+        "1",
+        "INTEGER");
+    sqlTester.checkString(
+        "EXISTSNODE(\n"
+            + "'<books xmlns=\"http://www.contoso"
+            + ".com/books\"><book><title>Title</title><author>Author Name</author><price>5"
+            + ".50</price></book></books>'"
+            + ", '/books:books/books:book/books:title2', 'books=\"http://www.contoso.com/books\"'"
+            + ")",
+        "0",
+        "INTEGER");
+  }
+
   @Test public void testLowerFunc() {
     tester.setFor(SqlStdOperatorTable.LOWER);
 
@@ -5602,6 +5689,34 @@ public abstract class SqlOperatorBaseTest {
         0.0001d);
     tester.checkNull("atan2(cast(null as integer), -1)");
     tester.checkNull("atan2(1, cast(null as double))");
+  }
+
+  @Test public void testCbrtFunc() {
+    tester.setFor(
+        SqlStdOperatorTable.CBRT);
+    tester.checkType("cbrt(1)", "DOUBLE NOT NULL");
+    tester.checkType("cbrt(cast(1 as float))", "DOUBLE NOT NULL");
+    tester.checkType(
+        "cbrt(case when false then 1 else null end)", "DOUBLE");
+    strictTester.checkFails(
+        "^cbrt('abc')^",
+        "Cannot apply 'CBRT' to arguments of type 'CBRT\\(<CHAR\\(3\\)>\\)'\\. Supported form\\(s\\): 'CBRT\\(<NUMERIC>\\)'",
+        false);
+    tester.checkType("cbrt('abc')", "DOUBLE NOT NULL");
+    tester.checkScalar(
+        "cbrt(8)",
+        "2.0",
+        "DOUBLE NOT NULL");
+    tester.checkScalar(
+        "cbrt(-8)",
+        "-2.0",
+        "DOUBLE NOT NULL");
+    tester.checkScalar(
+        "cbrt(cast(1 as decimal(1, 0)))",
+        "1.0",
+        "DOUBLE NOT NULL");
+    tester.checkNull("cbrt(cast(null as integer))");
+    tester.checkNull("cbrt(cast(null as double))");
   }
 
   @Test public void testCosFunc() {
@@ -8928,14 +9043,13 @@ public abstract class SqlOperatorBaseTest {
   /** Test that calls all operators with all possible argument types, and for
    * each type, with a set of tricky values.
    *
-   * This is not really a unit test since there are no assertions;
+   * <p>This is not really a unit test since there are no assertions;
    * it either succeeds or fails in the preparation of the operator case
    * and not when actually testing (validating/executing) the call.
    *
-   * Nevertheless the log messages conceal many problems which potentially need
-   * to be fixed especially cases where the query passes from the validation stage
-   * and fails at runtime.
-   * */
+   * <p>Nevertheless the log messages conceal many problems which potentially
+   * need to be fixed especially cases where the query passes from the
+   * validation stage and fails at runtime. */
   @Disabled("Too slow and not really a unit test")
   @Tag("slow")
   @Test public void testArgumentBounds() {
@@ -9005,8 +9119,7 @@ public abstract class SqlOperatorBaseTest {
           if (!typeChecker.checkOperandTypes(binding, false)) {
             continue;
           }
-          final SqlPrettyWriter writer =
-              new SqlPrettyWriter(CalciteSqlDialect.DEFAULT);
+          final SqlPrettyWriter writer = new SqlPrettyWriter();
           op.unparse(writer, call, 0, 0);
           final String s = writer.toSqlString().toString();
           if (s.startsWith("OVERLAY(")

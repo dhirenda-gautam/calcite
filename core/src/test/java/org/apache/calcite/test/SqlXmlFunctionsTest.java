@@ -56,6 +56,59 @@ public class SqlXmlFunctionsTest {
     assertXmlTransformFailed("", xslt, Matchers.expectThrowable(expected));
   }
 
+  @Test public void testExtractXml() {
+    assertExtractXml(null, "", null, nullValue());
+    assertExtractXml("", null, null, nullValue());
+
+    String xpath = "<";
+    String namespace = "a";
+    String message =
+        "Invalid input for EXTRACT xpath: '" + xpath + "', namespace: '" + namespace + "'";
+    CalciteException expected = new CalciteException(message, null);
+    assertExtractXmlFailed("", xpath, namespace, Matchers.expectThrowable(expected));
+  }
+
+
+  @Test public void testExistsNode() {
+    assertExistsNode(null, "", null, nullValue());
+    assertExistsNode("", null, null, nullValue());
+
+    String xpath = "<";
+    String namespace = "a";
+    String message =
+        "Invalid input for EXISTSNODE xpath: '" + xpath + "', namespace: '" + namespace + "'";
+    CalciteException expected = new CalciteException(message, null);
+    assertExistsNodeFailed("", xpath, namespace, Matchers.expectThrowable(expected));
+  }
+
+  private void assertExistsNode(String xml, String xpath, String namespace,
+      Matcher<? super Integer> matcher) {
+    String methodDesc = BuiltInMethod.EXISTS_NODE.getMethodName()
+        + "(" + String.join(", ", xml, xpath, namespace) + ")";
+    assertThat(methodDesc, XmlFunctions.existsNode(xml, xpath, namespace), matcher);
+  }
+
+  private void assertExistsNodeFailed(String xml, String xpath, String namespace,
+      Matcher<? super Throwable> matcher) {
+    String methodDesc = BuiltInMethod.EXISTS_NODE.getMethodName()
+        + "(" + String.join(", ", xml, xpath, namespace) + ")";
+    assertFailed(methodDesc, () -> XmlFunctions.existsNode(xml, xpath, namespace), matcher);
+  }
+
+  private void assertExtractXml(String xml, String xpath, String namespace,
+      Matcher<? super String> matcher) {
+    String methodDesc = BuiltInMethod.EXTRACT_XML.getMethodName()
+        + "(" + String.join(", ", xml, xpath, namespace) + ")";
+    assertThat(methodDesc, XmlFunctions.extractXml(xml, xpath, namespace), matcher);
+  }
+
+  private void assertExtractXmlFailed(String xml, String xpath, String namespace,
+      Matcher<? super Throwable> matcher) {
+    String methodDesc = BuiltInMethod.EXTRACT_XML.getMethodName()
+        + "(" + String.join(", ", xml, xpath, namespace) + ")";
+    assertFailed(methodDesc, () -> XmlFunctions.extractXml(xml, xpath, namespace), matcher);
+  }
+
   private void assertXmlTransform(String xml, String xslt,
       Matcher<? super String> matcher) {
     String methodDesc =

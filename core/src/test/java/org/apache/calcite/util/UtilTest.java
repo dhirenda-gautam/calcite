@@ -86,11 +86,12 @@ import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TimeZone;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.ObjIntConsumer;
 
 import static org.apache.calcite.test.Matchers.isLinux;
-import static org.apache.calcite.util.BitString.createFromBitString;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -334,13 +335,27 @@ public class UtilTest {
     assertReversible("01");
     assertReversible("001010");
     assertReversible("000000000100");
+
+    // from bytes
+    final byte[] b255 = {(byte) 0xFF};
+    assertThat(BitString.createFromBytes(b255).toString(),
+        is("11111111"));
+    final byte[] b11 = {(byte) 0x0B};
+    assertThat(BitString.createFromBytes(b11).toString(),
+        is("00001011"));
+    final byte[] b011 = {(byte) 0x00, 0x0B};
+    assertThat(BitString.createFromBytes(b011).toString(),
+        is("0000000000001011"));
   }
 
   private static void assertReversible(String s) {
-    assertEquals(createFromBitString(s).toBitString(), s, s);
-    assertEquals(
-        s,
-        BitString.createFromHexString(s).toHexString());
+    final BitString bitString = BitString.createFromBitString(s);
+    assertThat(bitString.toBitString(), is(s));
+    assertThat(BitString.createFromHexString(s).toHexString(), is(s));
+
+    final BitString bitString8 =
+        BitString.createFromBytes(bitString.getAsByteArray());
+    assertThat(bitString8.getAsByteArray(), is(bitString.getAsByteArray()));
   }
 
   private void assertByteArray(
@@ -905,6 +920,57 @@ public class UtilTest {
       x += pair.right;
     }
     assertEquals(5825, x);
+  }
+
+  /**
+   * Unit test for {@link Pair#forEach(Iterable, Iterable, BiConsumer)}.
+   */
+  @Test public void testPairForEach() {
+    List<String> strings = Arrays.asList("paul", "george", "john", "ringo");
+    List<Integer> integers = Arrays.asList(1942, 1943, 1940);
+
+    // shorter list on the right
+    final AtomicInteger size = new AtomicInteger();
+    Pair.forEach(strings, integers, (s, i) -> size.incrementAndGet());
+    assertThat(size.get(), is(3));
+
+    // shorter list on the left
+    size.set(0);
+    Pair.forEach(integers, strings, (i, s) -> size.incrementAndGet());
+    assertThat(size.get(), is(3));
+
+    // same on left and right
+    size.set(0);
+    Pair.forEach(strings, strings, (s1, s2) -> size.incrementAndGet());
+    assertThat(size.get(), is(4));
+
+    // empty on left
+    size.set(0);
+    Pair.forEach(strings, ImmutableList.of(), (s, i) -> size.incrementAndGet());
+    assertThat(size.get(), is(0));
+
+    // empty on right
+    size.set(0);
+    Pair.forEach(strings, ImmutableList.of(), (s, i) -> size.incrementAndGet());
+    assertThat(size.get(), is(0));
+
+    // empty on right
+    size.set(0);
+    Pair.forEach(ImmutableList.<String>of(), integers,
+        (s, i) -> size.incrementAndGet());
+    assertThat(size.get(), is(0));
+
+    // both empty
+    size.set(0);
+    Pair.forEach(ImmutableList.<String>of(), ImmutableList.<Integer>of(),
+        (s, i) -> size.incrementAndGet());
+    assertThat(size.get(), is(0));
+
+    // build a string
+    final StringBuilder b = new StringBuilder();
+    Pair.forEach(strings, integers,
+        (s, i) -> b.append(s).append(":").append(i).append(";"));
+    assertThat(b.toString(), is("paul:1942;george:1943;john:1940;"));
   }
 
   /**

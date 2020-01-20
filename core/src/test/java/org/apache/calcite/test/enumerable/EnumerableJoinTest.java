@@ -16,12 +16,13 @@
  */
 package org.apache.calcite.test.enumerable;
 
-import org.apache.calcite.adapter.enumerable.EnumerableConvention;
+import org.apache.calcite.adapter.enumerable.EnumerableMergeJoin;
 import org.apache.calcite.adapter.enumerable.EnumerableRules;
 import org.apache.calcite.adapter.java.ReflectiveSchema;
 import org.apache.calcite.config.CalciteConnectionProperty;
 import org.apache.calcite.config.Lex;
 import org.apache.calcite.plan.RelOptPlanner;
+import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.runtime.Hook;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.test.CalciteAssert;
@@ -164,59 +165,60 @@ public class EnumerableJoinTest {
         "empid=200");
   }
 
-  @Test public void testSortMergeJoinWithEquiCondition() {
-    EnumerableConvention.INSTANCE.useAbstractConvertersForConversion = true;
-    tester(false, new JdbcTest.HrSchema())
-        .query(""
-            + "select e.empid, e.name, d.name as dept, e.deptno, d.deptno\n"
-            + "from emps e join depts d\n"
-            + "on e.deptno=d.deptno")
-        .withHook(Hook.PLANNER, (Consumer<RelOptPlanner>) planner -> {
-          planner.addRule(EnumerableRules.ENUMERABLE_MERGE_JOIN_RULE);
-          planner.removeRule(EnumerableRules.ENUMERABLE_JOIN_RULE);
-        })
-        .explainContains(""
-            + "EnumerableCalc(expr#0..4=[{inputs}], empid=[$t2], name=[$t4], dept=[$t1], deptno=[$t3], deptno0=[$t0])\n"
-            + "  EnumerableMergeJoin(condition=[=($3, $0)], joinType=[inner])\n"
-            + "    EnumerableSort(sort0=[$0], dir0=[ASC])\n"
-            + "      EnumerableCalc(expr#0..3=[{inputs}], proj#0..1=[{exprs}])\n"
-            + "        EnumerableTableScan(table=[[s, depts]])\n"
-            + "    EnumerableSort(sort0=[$1], dir0=[ASC])\n"
-            + "      EnumerableCalc(expr#0..4=[{inputs}], proj#0..2=[{exprs}])\n"
-            + "        EnumerableTableScan(table=[[s, emps]])")
-        .returns(""
-            + "empid=100; name=Bill; dept=Sales; deptno=10; deptno=10\n"
-            + "empid=150; name=Sebastian; dept=Sales; deptno=10; deptno=10\n"
-            + "empid=110; name=Theodore; dept=Sales; deptno=10; deptno=10\n");
-    EnumerableConvention.INSTANCE.useAbstractConvertersForConversion = false;
-  }
-
+  /**
+   * The test verifies if {@link EnumerableMergeJoin} can implement a join with non-equi conditions.
+   */
   @Test public void testSortMergeJoinWithNonEquiCondition() {
-    EnumerableConvention.INSTANCE.useAbstractConvertersForConversion = true;
     tester(false, new JdbcTest.HrSchema())
-        .query(""
-            + "select e.empid, e.name, d.name as dept, e.deptno, d.deptno\n"
-            + "from emps e join depts d\n"
-            + "on e.deptno=d.deptno and e.empid > d.deptno * 10")
+        .query("?")
         .withHook(Hook.PLANNER, (Consumer<RelOptPlanner>) planner -> {
           planner.addRule(EnumerableRules.ENUMERABLE_MERGE_JOIN_RULE);
           planner.removeRule(EnumerableRules.ENUMERABLE_JOIN_RULE);
         })
-        .explainContains(""
-            + "EnumerableCalc(expr#0..4=[{inputs}], empid=[$t2], name=[$t4], dept=[$t1], deptno=[$t3], deptno0=[$t0])\n"
-            + "  EnumerableMergeJoin(condition=[AND(=($3, $0), >($2, *($0, 10)))], joinType=[inner])\n"
+        .withRel(builder -> builder
+            // build a rel equivalent to sql:
+            // select e.empid, e.name, d.name as dept, e.deptno, d.deptno
+            // from emps e join depts d
+            // on e.deptno=d.deptno and e.empid > d.deptno * 10
+            // Note: explicit sort is used so EnumerableMergeJoin could actually work
+            .scan("s", "emps")
+            .sort(builder.field("deptno"))
+            .scan("s", "depts")
+            .sort(builder.field("deptno"))
+            .join(JoinRelType.INNER,
+                builder.and(
+                    builder.equals(
+                        builder.field(2, 0, "deptno"),
+                        builder.field(2, 1, "deptno")),
+                    builder.getRexBuilder().makeCall(
+                        SqlStdOperatorTable.GREATER_THAN,
+                        builder.field(2, 0, "empid"),
+                        builder.getRexBuilder().makeCall(
+                            SqlStdOperatorTable.MULTIPLY,
+                            builder.literal(10),
+                            builder.field(2, 1, "deptno")))))
+            .project(
+                builder.field(1, "emps", "empid"),
+                builder.field(1, "emps", "name"),
+                builder.alias(builder.field(1, "depts", "name"), "dept_name"),
+                builder.alias(builder.field(1, "emps", "deptno"), "e_deptno"),
+                builder.alias(builder.field(1, "depts", "deptno"), "d_deptno"))
+            .build())
+        .explainHookMatches("" // It is important that we have MergeJoin in the plan
+            + "EnumerableCalc(expr#0..4=[{inputs}], expr#5=[10], expr#6=[*($t5, $t0)], expr#7=[>($t2, $t6)], empid=[$t2], name=[$t4], dept_name=[$t1], e_deptno=[$t3], d_deptno=[$t0], $condition=[$t7])\n"
+            + "  EnumerableMergeJoin(condition=[=($0, $3)], joinType=[inner])\n"
             + "    EnumerableSort(sort0=[$0], dir0=[ASC])\n"
             + "      EnumerableCalc(expr#0..3=[{inputs}], proj#0..1=[{exprs}])\n"
-            + "        EnumerableTableScan(table=[[s, depts]])\n"
+            + "        EnumerableInterpreter\n"
+            + "          BindableTableScan(table=[[s, depts]])\n"
             + "    EnumerableSort(sort0=[$1], dir0=[ASC])\n"
             + "      EnumerableCalc(expr#0..4=[{inputs}], proj#0..2=[{exprs}])\n"
-            + "        EnumerableTableScan(table=[[s, emps]])")
-        .returns(""
-            + "empid=150; name=Sebastian; dept=Sales; deptno=10; deptno=10\n"
-            + "empid=110; name=Theodore; dept=Sales; deptno=10; deptno=10\n");
-    EnumerableConvention.INSTANCE.useAbstractConvertersForConversion = false;
+            + "        EnumerableInterpreter\n"
+            + "          BindableTableScan(table=[[s, emps]])\n")
+        .returnsUnordered(""
+            + "empid=110; name=Theodore; dept_name=Sales; e_deptno=10; d_deptno=10\n"
+            + "empid=150; name=Sebastian; dept_name=Sales; e_deptno=10; d_deptno=10");
   }
-
 
   private CalciteAssert.AssertThat tester(boolean forceDecorrelate,
       Object schema) {
